@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@netlify/plugin-nextjs": "^5.15.9",
     "@react-oauth/google": "^0.13.5",
     "bcryptjs": "^2.4.3",
     "google-auth-library": "^10.6.2",
