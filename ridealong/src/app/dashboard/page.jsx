@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getApiUrl } from "@/utils/api";
+import connectDB from "@/lib/db";
+import User from "@/models/User";
+import { verifyToken } from "@/lib/auth";
 
 // Client Sub-component
 import DashboardClient from "@/components/dashboard/DashboardClient";
@@ -20,19 +22,24 @@ export default async function DashboardPage() {
 
   let user = null;
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000";
-    const res = await fetch(`${apiUrl}/api/auth/me`, {
-      method: "GET",
-      headers: { Cookie: `token=${token}` },
-    });
+    await connectDB();
+    const userId = verifyToken(cookieStore);
+    if (!userId) redirect("/login");
 
-    if (!res.ok) {
-      redirect("/login");
-    }
+    const userDoc = await User.findById(userId).lean();
+    if (!userDoc) redirect("/login");
 
-    user = await res.json();
+    // Sanitize user doc for Client Component
+    user = {
+      _id: userDoc._id.toString(),
+      name: userDoc.name,
+      email: userDoc.email,
+      gender: userDoc.gender,
+      isDriverVerified: userDoc.isDriverVerified,
+      profilePhoto: userDoc.profilePhoto
+    };
   } catch (error) {
-    console.error("Dashboard SSR Fetch Error:", error);
+    console.error("Dashboard DB Query Error:", error);
     redirect("/login");
   }
 

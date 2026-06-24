@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { requireAuth } from "@/lib/auth";
@@ -52,35 +50,21 @@ export async function POST(request) {
       );
     }
 
-    // Create unique filename
+    // Convert to Base64 Data URI
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const timestamp = Date.now();
-    const extension = file.name.split(".").pop();
-    const filename = `profile_${userId}_${timestamp}.${extension}`;
-    
-    // Save to public/uploads/profiles directory
-    const uploadsDir = join(process.cwd(), "public", "uploads", "profiles");
-    
-    // Ensure directory exists
-    await mkdir(uploadsDir, { recursive: true });
-    
-    const filepath = join(uploadsDir, filename);
-    await writeFile(filepath, buffer);
-
-    // Update user profile photo path
-    const photoPath = `/uploads/profiles/${filename}`;
+    const photoBase64 = `data:${file.type};base64,${buffer.toString("base64")}`;
     
     const updatedUser = await User.findByIdAndUpdate(
       userId, 
-      { profilePhoto: photoPath },
+      { profilePhoto: photoBase64 },
       { new: true }
     ).select("-password");
 
     return NextResponse.json(
       { 
         msg: "Profile photo uploaded successfully",
-        photoPath,
+        photoPath: photoBase64,
         user: updatedUser
       },
       { status: 200 }
@@ -122,3 +106,4 @@ export async function DELETE(request) {
     );
   }
 }
+

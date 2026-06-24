@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import mongoose from "mongoose";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
@@ -103,28 +101,28 @@ export async function PUT(request, { params }) {
         const bytes = await newFile.arrayBuffer();
         imageBuffer = Buffer.from(bytes);
         mimeType = newFile.type;
-
-        const timestamp = Date.now();
-        const extension = newFile.name.split(".").pop();
-        const filename = `rc_${userId}_${timestamp}.${extension}`;
-        const uploadsDir = join(process.cwd(), "public", "uploads", "registrations");
-        await mkdir(uploadsDir, { recursive: true });
-        await writeFile(join(uploadsDir, filename), imageBuffer);
-        vehicle.registrationImage = `/uploads/registrations/${filename}`;
+        vehicle.registrationImage = `data:${newFile.type};base64,${imageBuffer.toString("base64")}`;
       }
     }
 
     // Fall back to stored image if no new file uploaded
     if (!imageBuffer && vehicle.registrationImage) {
-      const { readFile } = await import("fs/promises");
-      const imagePath = join(process.cwd(), "public", vehicle.registrationImage);
-      try {
-        imageBuffer = await readFile(imagePath);
-        const ext = vehicle.registrationImage.split(".").pop().toLowerCase();
-        const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
-        mimeType = mimeMap[ext] || "image/jpeg";
-        mimeType = mimeMap[ext] || "image/jpeg";
-      } catch {
+      if (vehicle.registrationImage.startsWith("data:")) {
+        const matches = vehicle.registrationImage.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        if (matches && matches.length === 3) {
+          mimeType = matches[1];
+          imageBuffer = Buffer.from(matches[2], "base64");
+        }
+      } else {
+        const { readFile } = await import("fs/promises");
+        const imagePath = join(process.cwd(), "public", vehicle.registrationImage);
+        try {
+          imageBuffer = await readFile(imagePath);
+          const ext = vehicle.registrationImage.split(".").pop().toLowerCase();
+          const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+          mimeType = mimeMap[ext] || "image/jpeg";
+        } catch {
+        }
       }
     }
 

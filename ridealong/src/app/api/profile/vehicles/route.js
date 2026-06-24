@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { requireAuth } from "@/lib/auth";
@@ -54,16 +52,10 @@ export async function POST(request) {
       return NextResponse.json({ msg: "Vehicle registration photo is required" }, { status: 400 });
     }
 
-    // Save registration image
+    // Save registration image as Base64 Data URI
     const bytes = await registrationFile.arrayBuffer();
     const buffer = Buffer.from(bytes);
-    const timestamp = Date.now();
-    const extension = registrationFile.name.split(".").pop();
-    const filename = `rc_${userId}_${timestamp}.${extension}`;
-    const uploadsDir = join(process.cwd(), "public", "uploads", "registrations");
-    await mkdir(uploadsDir, { recursive: true });
-    await writeFile(join(uploadsDir, filename), buffer);
-    const registrationImagePath = `/uploads/registrations/${filename}`;
+    const registrationImagePath = `data:${registrationFile.type};base64,${buffer.toString("base64")}`;
 
     // --- Gemini Vision Verification ---
     let status = "pending";

@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import { requireAuth } from "@/lib/auth";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 
 export async function POST(request) {
   try {
@@ -33,27 +31,15 @@ export async function POST(request) {
       );
     }
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), "public", "uploads");
-    try {
-      await mkdir(uploadsDir, { recursive: true });
-    } catch (err) {
-      // Directory might already exist, ignore error
-    }
-
-    // Save Aadhaar image
+    // Convert Aadhaar image to Base64 Data URI
     const aadhaarBytes = await aadhaarImageFile.arrayBuffer();
     const aadhaarBuffer = Buffer.from(aadhaarBytes);
-    const aadhaarFileName = `${Date.now()}-aadhaar-${aadhaarImageFile.name}`;
-    const aadhaarPath = path.join(uploadsDir, aadhaarFileName);
-    await writeFile(aadhaarPath, aadhaarBuffer);
+    const aadhaarBase64 = `data:${aadhaarImageFile.type};base64,${aadhaarBuffer.toString("base64")}`;
 
-    // Save Driving License image
+    // Convert Driving License image to Base64 Data URI
     const licenseBytes = await drivingLicenseImageFile.arrayBuffer();
     const licenseBuffer = Buffer.from(licenseBytes);
-    const licenseFileName = `${Date.now()}-license-${drivingLicenseImageFile.name}`;
-    const licensePath = path.join(uploadsDir, licenseFileName);
-    await writeFile(licensePath, licenseBuffer);
+    const licenseBase64 = `data:${drivingLicenseImageFile.type};base64,${licenseBuffer.toString("base64")}`;
 
     // Update user with driver verification details
     const user = await User.findByIdAndUpdate(
@@ -61,8 +47,8 @@ export async function POST(request) {
       {
         aadhaarNumber,
         drivingLicenseNumber,
-        aadhaarImage: `/uploads/${aadhaarFileName}`,
-        drivingLicenseImage: `/uploads/${licenseFileName}`,
+        aadhaarImage: aadhaarBase64,
+        drivingLicenseImage: licenseBase64,
         isDriverVerified: true
       },
       { new: true }
@@ -80,3 +66,4 @@ export async function POST(request) {
     );
   }
 }
+
