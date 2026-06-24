@@ -32,8 +32,8 @@ export default function NotificationBell() {
     // Initial fetch
     fetchNotifications();
 
-    // Poll every 5 seconds
-    const interval = setInterval(fetchNotifications, 5000);
+    // Poll every 20 seconds to prevent app slowdown and server overload
+    const interval = setInterval(fetchNotifications, 20000);
     return () => clearInterval(interval);
   }, []);
 

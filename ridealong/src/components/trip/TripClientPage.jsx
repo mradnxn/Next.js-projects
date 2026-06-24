@@ -81,7 +81,13 @@ export default function TripClientPage({ initialTrip, id }) {
     if (!id || isHistory) return;
     
     // Connect directly to the custom Next.js Server wrapper on port 3000
-    socketRef.current = io({ path: "/socket.io" });
+    // Limit reconnection attempts in serverless environments to prevent request spam
+    socketRef.current = io({
+      path: "/socket.io",
+      reconnectionAttempts: 2,
+      reconnectionDelay: 5000,
+      timeout: 10000
+    });
     
     socketRef.current.on("connect", () => {
       socketRef.current.emit("join_trip", id);
@@ -134,48 +140,63 @@ export default function TripClientPage({ initialTrip, id }) {
     fetchMessages();
   }, [id]);
 
-  // HTTP Polling Fallback (For serverless environments like Netlify where WebSockets are unsupported/blocked)
+  // Consolidated Polling Sync Hook (chat, bookings, location, and trip status)
+  // Stops network spam by grouping multiple separate timers into one balanced tick.
   useEffect(() => {
     if (!id || isHistory || isCompleted) return;
 
-    const pollData = async () => {
-      // Skip HTTP polling if WebSockets are actively connected
-      if (socketRef.current && socketRef.current.connected) {
-        return;
-      }
-
+    const performSync = async () => {
       try {
-        // A. Poll Messages
-        const msgRes = await fetch(`${getApiUrl()}/api/trips/${id}/messages`, { credentials: "include" });
-        if (msgRes.ok) {
-          const msgData = await msgRes.json();
-          if (Array.isArray(msgData)) {
-            setMessages(msgData);
+        const isSocketActive = socketRef.current && socketRef.current.connected;
+
+        // A. Poll Messages (Only if WebSocket is disconnected)
+        if (!isSocketActive) {
+          const msgRes = await fetch(`${getApiUrl()}/api/trips/${id}/messages`, { credentials: "include" });
+          if (msgRes.ok) {
+            const msgData = await msgRes.json();
+            if (Array.isArray(msgData)) {
+              setMessages(msgData);
+            }
           }
         }
 
-        // B. Poll Trip details (for Driver Location and Trip Status updates)
-        if (!isDriver) {
-          const tripRes = await fetch(`${getApiUrl()}/api/trips/${id}`);
-          if (tripRes.ok) {
-            const tripData = await tripRes.json();
-            if (tripData.currentLocation) {
-              setDriverLocation(tripData.currentLocation);
-              setLastUpdate(new Date(tripData.lastLocationUpdate || Date.now()));
-            }
-            if (tripData.status && tripData.status !== trip?.status) {
-              setTrip(tripData);
-            }
+        // B. Poll Bookings (Only for Driver to verify requests)
+        if (isDriver) {
+          const bookingsRes = await fetch(`${getApiUrl()}/api/trips/${id}/bookings`, { credentials: "include" });
+          if (bookingsRes.ok) {
+            const data = await bookingsRes.json();
+            setBookings(data);
+          }
+        }
+
+        // C. Poll Trip Details (For Passenger to sync Driver Location, and sync overall Cancellation/Auto-Status)
+        const tripRes = await fetch(`${getApiUrl()}/api/trips/${id}`);
+        if (tripRes.ok) {
+          const tripData = await tripRes.json();
+          // Passenger Location Sync
+          if (!isDriver && tripData.currentLocation) {
+            setDriverLocation(tripData.currentLocation);
+            setLastUpdate(new Date(tripData.lastLocationUpdate || Date.now()));
+          }
+          // General Trip Status Sync
+          if (tripData.status && tripData.status !== trip?.status) {
+            setTrip(tripData);
           }
         }
       } catch (err) {
-        console.error("Polling error:", err);
+        console.error("Consolidated Sync error:", err);
       }
     };
 
-    const interval = setInterval(pollData, 4000);
+    // Initial check
+    performSync();
+
+    // Use a faster rate (4s) during active trips, and slower rate (8s) otherwise to save network/CPU
+    const intervalTime = isInProgress ? 4000 : 8000;
+    const interval = setInterval(performSync, intervalTime);
+
     return () => clearInterval(interval);
-  }, [id, isHistory, isCompleted, isDriver, trip?.status]);
+  }, [id, isHistory, isCompleted, isDriver, isInProgress, trip?.status]);
 
 
   // Fetch current user
@@ -274,26 +295,6 @@ export default function TripClientPage({ initialTrip, id }) {
 
   // Removed the 'Redirect on Cancellation' useEffect entirely so users can view read-only cancelled trips.
 
-  // Poll Bookings (poll every 5s)
-  useEffect(() => {
-    if (!isDriver || !id || isCompleted) return;
-    const fetchBookings = async () => {
-      try {
-        const res = await fetch(`${getApiUrl()}/api/trips/${id}/bookings`, { credentials: "include" });
-        if (res.ok) {
-          const data = await res.json();
-          setBookings(data);
-        }
-      } catch (err) { console.error(err); }
-    };
-    fetchBookings();
-    
-    if (!isHistory) {
-         const intId = setInterval(fetchBookings, 5000);
-         return () => clearInterval(intId);
-    }
-  }, [isDriver, id, isCompleted, isHistory]);
-  
   // Historical fetch for bookings for Driver (if it's completed and History, we still need bookings to show the riders routes)
   useEffect(() => {
     if (!isDriver || !id || !isHistory) return;
