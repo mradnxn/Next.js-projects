@@ -100,7 +100,11 @@ export default function TripClientPage({ initialTrip, id }) {
          setTrip(prev => prev ? { ...prev, status: message._internal_trip_status } : prev);
          return;
       }
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev) => {
+        // Prevent duplicate messages if already polled
+        if (prev.some(m => m._id === message._id)) return prev;
+        return [...prev, message];
+      });
     });
 
     return () => {
@@ -110,6 +114,69 @@ export default function TripClientPage({ initialTrip, id }) {
       }
     };
   }, [id, isHistory]);
+
+  // Load initial chat messages on mount
+  useEffect(() => {
+    if (!id) return;
+    const fetchMessages = async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/api/trips/${id}/messages`, { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setMessages(data);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching messages:", err);
+      }
+    };
+    fetchMessages();
+  }, [id]);
+
+  // HTTP Polling Fallback (For serverless environments like Netlify where WebSockets are unsupported/blocked)
+  useEffect(() => {
+    if (!id || isHistory || isCompleted) return;
+
+    const pollData = async () => {
+      // Skip HTTP polling if WebSockets are actively connected
+      if (socketRef.current && socketRef.current.connected) {
+        return;
+      }
+
+      try {
+        // A. Poll Messages
+        const msgRes = await fetch(`${getApiUrl()}/api/trips/${id}/messages`, { credentials: "include" });
+        if (msgRes.ok) {
+          const msgData = await msgRes.json();
+          if (Array.isArray(msgData)) {
+            setMessages(msgData);
+          }
+        }
+
+        // B. Poll Trip details (for Driver Location and Trip Status updates)
+        if (!isDriver) {
+          const tripRes = await fetch(`${getApiUrl()}/api/trips/${id}`);
+          if (tripRes.ok) {
+            const tripData = await tripRes.json();
+            if (tripData.currentLocation) {
+              setDriverLocation(tripData.currentLocation);
+              setLastUpdate(new Date(tripData.lastLocationUpdate || Date.now()));
+            }
+            if (tripData.status && tripData.status !== trip?.status) {
+              setTrip(tripData);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    };
+
+    const interval = setInterval(pollData, 4000);
+    return () => clearInterval(interval);
+  }, [id, isHistory, isCompleted, isDriver, trip?.status]);
+
 
   // Fetch current user
   useEffect(() => {
